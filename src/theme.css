@@ -1,0 +1,216 @@
+:root {
+  /* Palette (charte CEFF v2.2, partie A) */
+  --ceff-primaire: #1F3864;
+  --ceff-accent: #9B2020;
+  --ceff-texte-2: #404040;
+  --ceff-texte: #000000;
+  --ceff-alerte: #C00000;
+  --ceff-fond-bleu: #D9E1F2;
+  --ceff-fond-jaune: #FFF2CC;
+  --ceff-fond-orange: #FCE4D6;
+  --ceff-fond-vert: #E2EFDA;
+  --ceff-fond-gris: #F2F2F2;
+  --ceff-blanc: #FFFFFF;
+
+  /* Typographie */
+  --ceff-police: Arial, Helvetica, sans-serif;
+
+  /* Rayons */
+  --ceff-rayon-carte: 16px;
+  --ceff-rayon-tuile: 8px;
+  --ceff-rayon-pilule: 999px;
+
+  /* Bordures */
+  --ceff-bordure: 1px solid var(--ceff-fond-gris);
+
+  /* Ombres (lisibilité d'abord) */
+  --ceff-ombre-0: none;
+  --ceff-ombre-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --ceff-ombre-2: 0 8px 24px rgba(0, 0, 0, 0.08);
+
+  /* Espacement, base 8 */
+  --ceff-esp-1: 8px;
+  --ceff-esp-2: 16px;
+  --ceff-esp-3: 24px;
+  --ceff-esp-4: 32px;
+  --ceff-esp-6: 48px;
+
+  /* Graphiques et organigrammes */
+  --ceff-trait-courbe: 2px;
+  --ceff-grille-graph: var(--ceff-fond-gris);
+  --ceff-connecteur: #CFCFCF;
+
+  /* Transitions */
+  --ceff-transition: 150ms ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--ceff-police);
+  color: var(--ceff-texte);
+  background: var(--ceff-blanc);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: var(--ceff-police);
+}
+
+::selection {
+  background: var(--ceff-fond-bleu);
+}
+
+.ceff-btn {
+  font-family: var(--ceff-police);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--ceff-rayon-pilule);
+  padding: 8px 18px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--ceff-transition), border-color var(--ceff-transition), opacity var(--ceff-transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.ceff-btn-primary {
+  background: var(--ceff-primaire);
+  color: var(--ceff-blanc);
+}
+.ceff-btn-primary:hover {
+  opacity: 0.9;
+}
+.ceff-btn-primary:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ceff-btn-outline {
+  background: transparent;
+  color: var(--ceff-texte-2);
+  border-color: var(--ceff-fond-gris);
+}
+.ceff-btn-outline:hover {
+  background: var(--ceff-fond-gris);
+}
+.ceff-btn-outline:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ceff-btn-icon {
+  border-radius: var(--ceff-rayon-tuile);
+  padding: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ceff-texte-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ceff-btn-icon:hover {
+  background: var(--ceff-fond-gris);
+}
+.ceff-btn-icon:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+input, textarea, select {
+  font-family: var(--ceff-police);
+  font-size: 13px;
+  border: 1px solid var(--ceff-fond-gris);
+  border-radius: var(--ceff-rayon-tuile);
+  padding: 8px 10px;
+  color: var(--ceff-texte);
+  outline: none;
+  transition: border-color var(--ceff-transition);
+  width: 100%;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--ceff-primaire);
+}
+
+.ceff-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--ceff-rayon-pilule);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.5pt;
+  text-transform: uppercase;
+  padding: 3px 10px;
+}
+
+.ceff-mobile-only {
+  display: none;
+}
+
+.ceff-backdrop {
+  display: none;
+}
+
+/* Écran étroit (iPhone) : la bibliothèque et les propriétés passent en
+   panneaux superposés au lieu d'écraser le canevas. */
+@media (max-width: 860px) {
+  .ceff-mobile-only {
+    display: inline-flex;
+  }
+
+  .ceff-toolbar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ceff-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ceff-chart-name {
+    width: 120px !important;
+  }
+
+  .ceff-panel {
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    width: 85vw;
+    max-width: 320px;
+    z-index: 40;
+    transition: transform var(--ceff-transition);
+    box-shadow: var(--ceff-ombre-2);
+  }
+
+  .ceff-panel-left {
+    left: 0;
+    border-right: var(--ceff-bordure);
+    transform: translateX(-105%);
+  }
+  .ceff-panel-right {
+    right: 0;
+    border-left: var(--ceff-bordure);
+    transform: translateX(105%);
+  }
+  .ceff-panel.open {
+    transform: translateX(0);
+  }
+
+  .ceff-backdrop.open {
+    display: block;
+    position: fixed;
+    inset: 56px 0 0 0;
+    background: rgba(31, 56, 100, 0.25);
+    z-index: 35;
+  }
+}
