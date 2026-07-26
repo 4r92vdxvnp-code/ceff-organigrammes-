@@ -9,6 +9,7 @@ import {
   applyEdgeChanges,
   useReactFlow,
   useStoreApi,
+  ConnectionMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './theme.css';
@@ -71,13 +72,25 @@ const BLANK_NODE = {
   data: { label: 'Directeur général', sublabel: 'Direction', color: 'primaire' },
 };
 
+// Page vierge à l'ouverture (comme un nouveau classeur Excel) : l'organigramme
+// d'équipe fourni par défaut est conservé, mais rangé dans "Charger" plutôt
+// qu'imposé à chaque lancement — on ne le crée qu'une seule fois, au tout
+// premier démarrage (avant qu'il n'y ait le moindre organigramme enregistré).
+const STARTER_CHART_NAME = 'Équipe CEFF (modèle)';
+
+function seedStarterChartOnce() {
+  const charts = loadCharts();
+  if (Object.keys(charts).length > 0) return charts;
+  return saveChart(STARTER_CHART_NAME, { nodes: STARTER_NODES, edges: STARTER_EDGES }).charts;
+}
+
 function Flow() {
-  const [nodes, setNodes] = useState(STARTER_NODES);
-  const [edges, setEdges] = useState(STARTER_EDGES);
+  const [nodes, setNodes] = useState([{ ...BLANK_NODE, data: { ...BLANK_NODE.data } }]);
+  const [edges, setEdges] = useState([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState([]);
   const [chartName, setChartName] = useState('Sans titre');
   const [templates, setTemplates] = useState(() => loadTemplates(DEFAULT_TEMPLATES));
-  const [savedCharts, setSavedCharts] = useState(() => loadCharts());
+  const [savedCharts, setSavedCharts] = useState(() => seedStarterChartOnce());
   const [history, setHistory] = useState({ past: [], future: [] });
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [savedNames, setSavedNames] = useState(() => loadNames(DEFAULT_NAMES));
@@ -684,6 +697,9 @@ function Flow() {
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
+            // "loose" : n'importe quel côté (haut/bas/gauche/droite) peut
+            // relier n'importe quel autre côté, pas seulement bas → haut.
+            connectionMode={ConnectionMode.Loose}
             onSelectionChange={onSelectionChange}
             onBeforeDelete={onBeforeDelete}
             // Maj = rectangle de sélection sur le fond ; Cmd/Ctrl = ajout

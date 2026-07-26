@@ -80,6 +80,8 @@ export default function InspectorPanel({
   // Un badge hors liste (ou le choix explicite "Autre") bascule en texte libre.
   const badgeIsCustom = data.badgeCustom || (!!data.badge && !STATUS_BADGES.includes(data.badge));
   const badgeSelectValue = badgeIsCustom ? '__autre__' : data.badge || '';
+  // Une couleur hors palette CEFF (choisie via le sélecteur libre) n'a pas de clé connue.
+  const isCustomColor = !!data.color && !CEFF_COLORS.some((c) => c.key === data.color);
 
   return (
     <aside className="ceff-panel ceff-panel-right open" style={panelStyle}>
@@ -153,7 +155,7 @@ export default function InspectorPanel({
       </Field>
 
       <Field label="Couleur (exception, palette CEFF)">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
           {CEFF_COLORS.map((c) => (
             <button
               key={c.key}
@@ -169,7 +171,33 @@ export default function InspectorPanel({
               }}
             />
           ))}
+          <label
+            title="Couleur libre, hors palette (la charte recommande de s'en tenir aux couleurs ci-dessus)"
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 7,
+              cursor: 'pointer',
+              position: 'relative',
+              border: isCustomColor ? '2px solid var(--ceff-primaire)' : '1px dashed var(--ceff-texte-2)',
+              background: isCustomColor
+                ? data.color
+                : 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
+            }}
+          >
+            <input
+              type="color"
+              value={isCustomColor ? data.color : '#1F3864'}
+              onChange={(e) => update({ color: e.target.value })}
+              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
+            />
+          </label>
         </div>
+        {isCustomColor && (
+          <div style={{ fontSize: 10.5, color: 'var(--ceff-texte-2)', marginTop: 4, opacity: 0.85 }}>
+            Couleur libre {data.color} : hors palette CEFF, à réserver aux cas particuliers.
+          </div>
+        )}
       </Field>
 
       <Field label="Badge de statut">

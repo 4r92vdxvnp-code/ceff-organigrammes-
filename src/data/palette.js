@@ -10,7 +10,22 @@ export const CEFF_COLORS = [
   { key: 'blanc', label: 'Blanc', bg: '#FFFFFF', text: '#404040' },
 ];
 
+// Texte noir ou blanc selon la luminance du fond, pour rester lisible avec
+// une couleur libre choisie hors palette.
+function readableTextFor(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? '#404040' : '#FFFFFF';
+}
+
 export function colorByKey(key) {
+  // Couleur libre (exception à la charte §18-1, choisie explicitement par
+  // l'utilisateur) : un code hex au lieu d'une clé de la palette officielle.
+  if (typeof key === 'string' && /^#[0-9a-f]{6}$/i.test(key)) {
+    return { key, label: 'Personnalisée', bg: key, text: readableTextFor(key) };
+  }
   return CEFF_COLORS.find((c) => c.key === key) || CEFF_COLORS[3];
 }
 
@@ -31,7 +46,7 @@ export const LEVELS = [
   { value: 4, label: 'Niveau 4, fonctions' },
 ];
 
-export const STATUS_BADGES = ['INTÉRIM', 'NOUVEAU', 'RENFORT'];
+export const STATUS_BADGES = ['INTÉRIM', 'NOUVEAU', 'RENFORT', 'SOUS-TRAITANT'];
 
 // Charte §14 : largeur constante et hauteur homogène pour toutes les boîtes.
 // Valeurs alignées sur la grille base 8.

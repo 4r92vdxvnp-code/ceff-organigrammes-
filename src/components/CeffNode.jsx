@@ -51,10 +51,26 @@ function CeffNode({ data, selected }) {
         </span>
       )}
 
+      {/* Quatre côtés, tous utilisables dans les deux sens (voir
+          connectionMode="loose" sur le canevas) : la hiérarchie descend
+          normalement par haut/bas, les côtés servent surtout aux liens
+          latéraux (ex. rattachement fonctionnel en pointillé). */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
+        style={{ background: 'var(--ceff-connecteur)', width: 6, height: 6, border: 'none' }}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        style={{ background: 'var(--ceff-connecteur)', width: 6, height: 6, border: 'none' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
         style={{ background: 'var(--ceff-connecteur)', width: 6, height: 6, border: 'none' }}
       />
 
