@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -8,6 +8,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   useReactFlow,
+  useStoreApi,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './theme.css';
@@ -34,12 +35,34 @@ import {
   importChartFromFile,
 } from './utils/storage';
 import { exportOrgChartToPdf } from './utils/pdfExport';
+import { computeSnap } from './utils/snapping';
 
 const nodeTypes = { ceffNode: CeffNode };
 const edgeTypes = { ceff: CeffEdge };
 
 let idCounter = 0;
 const newId = () => `n-${Date.now()}-${idCounter++}`;
+
+// Copie les bulles et les liens en créant de NOUVELLES références d'objets.
+// React Flow compare par référence : restaurer les objets d'origine lui ferait
+// croire que rien n'a changé, et les liens ne seraient plus tracés après une
+// annulation (leurs tables internes de connexion ne seraient pas reconstruites).
+function cloneGraph(nodes, edges) {
+  return {
+    nodes: nodes.map((n) => ({ ...n, position: { ...n.position }, data: { ...n.data } })),
+    edges: edges.map((e) => ({ ...e, data: { ...e.data } })),
+  };
+}
+
+// Retire les états d'interface (sélection, survol) avant d'enregistrer ou
+// d'exporter : sinon un organigramme rouvert réapparaîtrait avec des bulles
+// sélectionnées sans raison.
+function forStorage(nodes, edges) {
+  return {
+    nodes: nodes.map(({ selected, dragging, ...n }) => n),
+    edges: edges.map(({ selected, ...e }) => e),
+  };
+}
 
 const BLANK_NODE = {
   id: 'n-root',
@@ -51,7 +74,7 @@ const BLANK_NODE = {
 function Flow() {
   const [nodes, setNodes] = useState(STARTER_NODES);
   const [edges, setEdges] = useState(STARTER_EDGES);
-  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState([]);
   const [chartName, setChartName] = useState('Sans titre');
   const [templates, setTemplates] = useState(() => loadTemplates(DEFAULT_TEMPLATES));
   const [savedCharts, setSavedCharts] = useState(() => loadCharts());
@@ -67,12 +90,49 @@ function Flow() {
   const [guideValues, setGuideValues] = useState({ x: null, y: null });
   const historyTimer = useRef(null);
   const wrapperRef = useRef(null);
-  const { screenToFlowPosition, flowToScreenPosition, getZoom } = useReactFlow();
+  const snappedPositionRef = useRef(null);
+  const { screenToFlowPosition, flowToScreenPosition, getZoom, getNodes } = useReactFlow();
+  // Quand des bulles réapparaissent après avoir disparu (annulation d'une
+  // suppression, chargement, import), React Flow ne les remesure pas : leurs
+  // dimensions et leurs poignées restent vides et les liens ne sont plus
+  // tracés. On force donc une remesure après le rendu.
+  const [graphVersion, setGraphVersion] = useState(0);
+  const store = useStoreApi();
 
-  const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) || null, [nodes, selectedNodeId]);
+  const replaceGraph = useCallback((nextNodes, nextEdges) => {
+    setNodes(nextNodes);
+    setEdges(nextEdges);
+    setGraphVersion((v) => v + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!graphVersion) return;
+    // setTimeout plutôt que requestAnimationFrame : rAF ne se déclenche pas
+    // tant que l'onglet n'est pas peint (arrière-plan, fenêtre masquée), ce
+    // qui laisserait l'organigramme sans ses liens.
+    const timer = setTimeout(() => {
+      const elements = wrapperRef.current?.querySelectorAll('.react-flow__node') || [];
+      const updates = new Map();
+      elements.forEach((el) => {
+        const id = el.getAttribute('data-id');
+        if (id) updates.set(id, { id, nodeElement: el, force: true });
+      });
+      if (updates.size) {
+        store.getState().updateNodeInternals(updates, { triggerFitView: false });
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphVersion]);
+
+  // Le panneau de propriétés n'édite une bulle que si elle est seule sélectionnée.
+  const selectedNode = useMemo(
+    () => (selectedNodeIds.length === 1 ? nodes.find((n) => n.id === selectedNodeIds[0]) || null : null),
+    [nodes, selectedNodeIds]
+  );
 
   const snapshot = useCallback((prevNodes, prevEdges) => {
-    setHistory((h) => ({ past: [...h.past, { nodes: prevNodes, edges: prevEdges }].slice(-50), future: [] }));
+    setHistory((h) => ({ past: [...h.past, cloneGraph(prevNodes, prevEdges)].slice(-50), future: [] }));
   }, []);
 
   const commit = useCallback(
@@ -95,24 +155,31 @@ function Flow() {
     [nodes, edges, snapshot]
   );
 
+  // Les modifications d'état sont faites hors des fonctions de mise à jour de
+  // setHistory : imbriquer des setState dans un updater le rend impur et le
+  // fait exécuter deux fois en mode strict.
   function undo() {
-    setHistory((h) => {
-      if (!h.past.length) return h;
-      const previous = h.past[h.past.length - 1];
-      setNodes(previous.nodes);
-      setEdges(previous.edges);
-      return { past: h.past.slice(0, -1), future: [{ nodes, edges }, ...h.future].slice(0, 50) };
+    if (!history.past.length) return;
+    const previous = history.past[history.past.length - 1];
+    setHistory({
+      past: history.past.slice(0, -1),
+      future: [cloneGraph(nodes, edges), ...history.future].slice(0, 50),
     });
+    const restored = cloneGraph(previous.nodes, previous.edges);
+    replaceGraph(restored.nodes, restored.edges);
+    setSelectedNodeIds([]);
   }
 
   function redo() {
-    setHistory((h) => {
-      if (!h.future.length) return h;
-      const next = h.future[0];
-      setNodes(next.nodes);
-      setEdges(next.edges);
-      return { past: [...h.past, { nodes, edges }].slice(-50), future: h.future.slice(1) };
+    if (!history.future.length) return;
+    const next = history.future[0];
+    setHistory({
+      past: [...history.past, cloneGraph(nodes, edges)].slice(-50),
+      future: history.future.slice(1),
     });
+    const restored = cloneGraph(next.nodes, next.edges);
+    replaceGraph(restored.nodes, restored.edges);
+    setSelectedNodeIds([]);
   }
 
   const onNodesChange = useCallback((changes) => {
@@ -120,11 +187,20 @@ function Flow() {
     const removed = changes.filter((c) => c.type === 'remove').map((c) => c.id);
     if (removed.length) {
       setEdges((eds) => eds.filter((e) => !removed.includes(e.source) && !removed.includes(e.target)));
-      setSelectedNodeId((id) => (removed.includes(id) ? null : id));
+      setSelectedNodeIds((ids) => ids.filter((id) => !removed.includes(id)));
     }
   }, []);
 
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
+
+  // Suppression déclenchée par l'utilisateur (touche Suppr / Retour arrière).
+  // C'est le seul endroit où capturer l'historique : le faire dans
+  // onNodesChange / onEdgesChange enregistrerait aussi les changements
+  // programmatiques en cascade et corromprait la pile d'annulation.
+  const onBeforeDelete = useCallback(async () => {
+    snapshot(nodes, edges);
+    return true;
+  }, [nodes, edges, snapshot]);
 
   const onNodeDragStart = useCallback(() => {
     snapshot(nodes, edges);
@@ -135,73 +211,42 @@ function Flow() {
   // centres des autres bulles (alignement horizontal et vertical entre elles).
   const onNodeDrag = useCallback(
     (_event, node) => {
-      if (!showGuides || !wrapperRef.current) {
+      if (!showGuides || !wrapperRef.current || selectedNodeIds.length > 1) {
+        snappedPositionRef.current = null;
         setSnap({ x: false, y: false });
         setGuideValues({ x: null, y: null });
         return;
       }
       const rect = wrapperRef.current.getBoundingClientRect();
-      const centerFlow = screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-      const threshold = 8 / getZoom();
-      const w = node.measured?.width || node.width || 190;
-      const h = node.measured?.height || node.height || 70;
-
-      const left = node.position.x;
-      const centerX = left + w / 2;
-      const right = left + w;
-      const top = node.position.y;
-      const centerY = top + h / 2;
-      const bottom = top + h;
-
-      const candidatesX = [centerFlow.x];
-      const candidatesY = [centerFlow.y];
-      nodes.forEach((n) => {
-        if (n.id === node.id) return;
-        const nw = n.measured?.width || n.width || 190;
-        const nh = n.measured?.height || n.height || 70;
-        candidatesX.push(n.position.x, n.position.x + nw / 2, n.position.x + nw);
-        candidatesY.push(n.position.y, n.position.y + nh / 2, n.position.y + nh);
+      const canvasCenter = screenToFlowPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
       });
+      const snapped = computeSnap(node, nodes, canvasCenter, 8 / getZoom());
 
-      function bestMatch(values, candidates) {
-        let best = null;
-        for (const c of candidates) {
-          for (const v of values) {
-            const diff = c - v;
-            if (Math.abs(diff) < threshold && (!best || Math.abs(diff) < Math.abs(best.delta))) {
-              best = { delta: diff, guideValue: c };
-            }
-          }
-        }
-        return best;
-      }
+      setSnap({ x: !!snapped?.guideX, y: !!snapped?.guideY });
+      setGuideValues({ x: snapped?.guideX ?? null, y: snapped?.guideY ?? null });
+      snappedPositionRef.current = snapped;
 
-      const matchX = bestMatch([left, centerX, right], candidatesX);
-      const matchY = bestMatch([top, centerY, bottom], candidatesY);
-
-      setSnap({ x: !!matchX, y: !!matchY });
-      setGuideValues({ x: matchX ? matchX.guideValue : null, y: matchY ? matchY.guideValue : null });
-
-      if (matchX || matchY) {
+      if (snapped) {
         setNodes((nds) =>
-          nds.map((n) =>
-            n.id === node.id
-              ? {
-                  ...n,
-                  position: {
-                    x: matchX ? n.position.x + matchX.delta : n.position.x,
-                    y: matchY ? n.position.y + matchY.delta : n.position.y,
-                  },
-                }
-              : n
-          )
+          nds.map((n) => (n.id === node.id ? { ...n, position: { x: snapped.x, y: snapped.y } } : n))
         );
       }
     },
-    [showGuides, nodes, screenToFlowPosition, getZoom]
+    [showGuides, nodes, selectedNodeIds, screenToFlowPosition, getZoom]
   );
 
+  // React Flow réécrit la position brute (non aimantée) au relâchement :
+  // on réapplique la dernière position aimantée pour éviter le décalage.
   const onNodeDragStop = useCallback(() => {
+    const snapped = snappedPositionRef.current;
+    if (snapped) {
+      setNodes((nds) =>
+        nds.map((n) => (n.id === snapped.id ? { ...n, position: { x: snapped.x, y: snapped.y } } : n))
+      );
+    }
+    snappedPositionRef.current = null;
     setDragging(false);
     setSnap({ x: false, y: false });
     setGuideValues({ x: null, y: null });
@@ -226,8 +271,11 @@ function Flow() {
     [nodes, edges, snapshot]
   );
 
-  const onNodeClick = useCallback((_e, node) => setSelectedNodeId(node.id), []);
-  const onPaneClick = useCallback(() => setSelectedNodeId(null), []);
+  // React Flow est la source de vérité de la sélection : cela fait fonctionner
+  // le clic simple, le Maj + clic et le rectangle de sélection sans code en double.
+  const onSelectionChange = useCallback(({ nodes: sel }) => {
+    setSelectedNodeIds(sel.map((n) => n.id));
+  }, []);
 
   const onDrop = useCallback(
     (event) => {
@@ -246,6 +294,7 @@ function Flow() {
           data: {
             label: tpl.label,
             sublabel: tpl.sublabel || '',
+            level: tpl.level,
             color: LEVEL_DEFAULT_COLOR[tpl.level] || 'fond-gris',
           },
         },
@@ -279,6 +328,7 @@ function Flow() {
           data: {
             label: tpl.label,
             sublabel: tpl.sublabel || '',
+            level: tpl.level,
             color: LEVEL_DEFAULT_COLOR[tpl.level] || 'fond-gris',
           },
         },
@@ -297,11 +347,42 @@ function Flow() {
       nodes.filter((n) => n.id !== id),
       edges.filter((e) => e.source !== id && e.target !== id)
     );
-    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
   }
 
   function deleteEdge(id) {
     commit(nodes, edges.filter((e) => e.id !== id));
+  }
+
+  // Vide entièrement le canevas (bulles et liens), annulable via "Annuler".
+  function deleteAll() {
+    if (!nodes.length && !edges.length) return;
+    if (!window.confirm("Supprimer toutes les bulles et tous les liens de cet organigramme ?")) return;
+    commit([], []);
+    setSelectedNodeIds([]);
+  }
+
+  // Supprime toutes les bulles sélectionnées, et les liens qui y aboutissent.
+  function deleteSelection() {
+    if (!selectedNodeIds.length) return;
+    commit(
+      nodes.filter((n) => !selectedNodeIds.includes(n.id)),
+      edges.filter((e) => !selectedNodeIds.includes(e.source) && !selectedNodeIds.includes(e.target))
+    );
+    setSelectedNodeIds([]);
+  }
+
+  // Applique un niveau hiérarchique (et le fond correspondant) à tout le groupe.
+  function applyLevelToSelection(level) {
+    if (!selectedNodeIds.length) return;
+    commit(
+      nodes.map((n) =>
+        selectedNodeIds.includes(n.id)
+          ? { ...n, data: { ...n.data, level, color: LEVEL_DEFAULT_COLOR[level] } }
+          : n
+      ),
+      edges
+    );
   }
 
   function toggleEdgeDashed(id) {
@@ -340,7 +421,7 @@ function Flow() {
 
   const onNodeContextMenu = useCallback((event, node) => {
     event.preventDefault();
-    setSelectedNodeId(node.id);
+    setSelectedNodeIds((ids) => (ids.includes(node.id) ? ids : [node.id]));
     const flowPosition = screenToFlowPosition({ x: event.clientX, y: event.clientY });
     setContextMenu({ type: 'node', id: node.id, x: event.clientX, y: event.clientY, flowPosition });
   }, [screenToFlowPosition]);
@@ -361,10 +442,9 @@ function Flow() {
 
   function handleNew() {
     if (!window.confirm('Créer un nouvel organigramme ? Les modifications non enregistrées seront perdues.')) return;
-    setNodes([BLANK_NODE]);
-    setEdges([]);
+    replaceGraph([{ ...BLANK_NODE, data: { ...BLANK_NODE.data } }], []);
     setChartName('Sans titre');
-    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
     setHistory({ past: [], future: [] });
   }
 
@@ -373,19 +453,21 @@ function Flow() {
     if (!name || name === 'Sans titre') {
       name = window.prompt("Nom de l'organigramme (affaire / projet) :", 'Nouvel organigramme') || '';
       if (!name.trim()) return;
+      name = name.trim();
       setChartName(name);
     }
-    const updated = saveChart(name, { nodes, edges });
-    setSavedCharts(updated);
+    const { charts, erreur } = saveChart(name, forStorage(nodes, edges));
+    setSavedCharts(charts);
+    if (erreur) window.alert("Enregistrement impossible.\n\n" + erreur);
   }
 
   function handleLoad(name) {
     const chart = savedCharts[name];
     if (!chart) return;
-    setNodes(chart.nodes);
-    setEdges(chart.edges);
+    const loaded = cloneGraph(chart.nodes, chart.edges);
+    replaceGraph(loaded.nodes, loaded.edges);
     setChartName(name);
-    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
     setHistory({ past: [], future: [] });
   }
 
@@ -395,29 +477,35 @@ function Flow() {
   }
 
   function handleExportJson() {
-    exportChartToFile(chartName, { nodes, edges });
+    exportChartToFile(chartName, forStorage(nodes, edges));
   }
 
   async function handleImportJson(file) {
     try {
       const data = await importChartFromFile(file);
       snapshot(nodes, edges);
-      setNodes(data.nodes);
-      setEdges(data.edges);
+      const imported = cloneGraph(data.nodes, data.edges);
+      replaceGraph(imported.nodes, imported.edges);
       setChartName(data.name || file.name.replace(/\.json$/i, ''));
-      setSelectedNodeId(null);
+      setSelectedNodeIds([]);
     } catch (err) {
       window.alert("Impossible d'importer ce fichier : " + err.message);
     }
   }
 
   function handleExportPdf() {
+    if (!nodes.length) {
+      window.alert("L'organigramme est vide, il n'y a rien à exporter.");
+      return;
+    }
     setPdfDialogOpen(true);
   }
 
   function confirmExportPdf(includeLogo) {
     setPdfDialogOpen(false);
-    exportOrgChartToPdf(nodes, edges, chartName, { includeLogo });
+    // getNodes() renvoie les nœuds avec leurs dimensions réellement mesurées :
+    // indispensable pour calculer une boîte englobante juste, donc un centrage correct.
+    exportOrgChartToPdf(getNodes(), edges, chartName, { includeLogo });
   }
 
   function handleSetTemplates(updater) {
@@ -448,6 +536,7 @@ function Flow() {
   function buildContextMenuItems() {
     if (!contextMenu) return [];
     if (contextMenu.type === 'node') {
+      const multiple = selectedNodeIds.length > 1 && selectedNodeIds.includes(contextMenu.id);
       return [
         { label: 'Copier', onClick: () => { copyNode(contextMenu.id); setContextMenu(null); } },
         { label: 'Couper', onClick: () => { cutNode(contextMenu.id); setContextMenu(null); } },
@@ -462,7 +551,13 @@ function Flow() {
           },
         },
         { divider: true },
-        { label: 'Supprimer', danger: true, onClick: () => { deleteNode(contextMenu.id); setContextMenu(null); } },
+        multiple
+          ? {
+              label: `Supprimer les ${selectedNodeIds.length} bulles`,
+              danger: true,
+              onClick: () => { deleteSelection(); setContextMenu(null); },
+            }
+          : { label: 'Supprimer', danger: true, onClick: () => { deleteNode(contextMenu.id); setContextMenu(null); } },
       ];
     }
     if (contextMenu.type === 'edge') {
@@ -482,6 +577,13 @@ function Flow() {
           label: 'Coller ici',
           disabled: !clipboardNode,
           onClick: () => { pasteNodeAt(contextMenu.flowPosition); setContextMenu(null); },
+        },
+        { divider: true },
+        {
+          label: 'Tout effacer',
+          danger: true,
+          disabled: !nodes.length && !edges.length,
+          onClick: () => { setContextMenu(null); deleteAll(); },
         },
       ];
     }
@@ -515,16 +617,18 @@ function Flow() {
         onRedo={redo}
         canUndo={history.past.length > 0}
         canRedo={history.future.length > 0}
-        logoSrc="/logo-ceff.jpg"
+        logoSrc={`${import.meta.env.BASE_URL}logo-ceff.jpg`}
         onToggleLibrary={() => setLibraryOpen((v) => !v)}
         showGuides={showGuides}
         onToggleGuides={() => setShowGuides((v) => !v)}
+        onDeleteAll={deleteAll}
+        canDeleteAll={nodes.length > 0 || edges.length > 0}
       />
       <div
-        className={`ceff-backdrop${libraryOpen || selectedNode ? ' open' : ''}`}
+        className={`ceff-backdrop${libraryOpen || selectedNodeIds.length ? ' open' : ''}`}
         onClick={() => {
           setLibraryOpen(false);
-          setSelectedNodeId(null);
+          setSelectedNodeIds([]);
         }}
       />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -580,8 +684,12 @@ function Flow() {
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
-            onNodeClick={onNodeClick}
-            onPaneClick={onPaneClick}
+            onSelectionChange={onSelectionChange}
+            onBeforeDelete={onBeforeDelete}
+            // Maj = rectangle de sélection sur le fond ; Cmd/Ctrl = ajout
+            // bulle par bulle. Utiliser Maj pour les deux les met en conflit.
+            multiSelectionKeyCode={['Meta', 'Control']}
+            selectionKeyCode="Shift"
             onNodeContextMenu={onNodeContextMenu}
             onEdgeContextMenu={onEdgeContextMenu}
             onPaneContextMenu={onPaneContextMenu}
@@ -597,12 +705,16 @@ function Flow() {
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable nodeColor={() => '#D9E1F2'} maskColor="rgba(31,56,100,0.05)" />
           </ReactFlow>
+          <div className="ceff-credit">Application développée par Réal Dylan</div>
         </div>
         <InspectorPanel
           node={selectedNode}
+          selectionCount={selectedNodeIds.length}
           onChange={updateNodeData}
           onDelete={deleteNode}
-          onClose={() => setSelectedNodeId(null)}
+          onDeleteSelection={deleteSelection}
+          onApplyLevelToSelection={applyLevelToSelection}
+          onClose={() => setSelectedNodeIds([])}
           savedNames={savedNames}
           onCommitName={handleCommitName}
           onRemoveName={handleRemoveName}

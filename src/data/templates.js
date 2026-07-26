@@ -2,7 +2,7 @@
 // "level" fixe la couleur de fond par défaut (voir palette.js) ; modifiable ensuite au cas par cas.
 export const DEFAULT_TEMPLATES = [
   { id: 'tpl-dg', label: 'Directeur général', sublabel: 'Direction', level: 1 },
-  { id: 'tpl-be', label: "Bureau d'étude", sublabel: 'Pôle Études', level: 2 },
+  { id: 'tpl-be', label: "Bureau d'étude", sublabel: 'Pôle Études', level: 3 },
   { id: 'tpl-ran', label: "Responsable d'activités Normandie", sublabel: 'Pôle Travaux', level: 2 },
   { id: 'tpl-ra', label: "Responsable d'affaires", sublabel: 'Pôle Travaux', level: 2 },
   { id: 'tpl-admin', label: 'Administration', sublabel: 'Pôle Support', level: 2 },

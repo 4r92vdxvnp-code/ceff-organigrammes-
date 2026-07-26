@@ -1,10 +1,12 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { colorByKey } from '../data/palette';
+import { colorByKey, NODE_WIDTH, NODE_MIN_HEIGHT } from '../data/palette';
 
 // Boîte d'organigramme CEFF (charte §14) : rayon 8px, fond par niveau,
 // deux lignes maximum (sauf boîte d'équipe), badge de statut centré en haut,
 // mise en avant = bordure 1px rouge cramoisi.
+// La largeur est constante et la hauteur homogène : la charte l'impose, et
+// cela garantit des bulles réellement alignées entre elles.
 function CeffNode({ data, selected }) {
   const color = colorByKey(data.color);
   const extraLines = (data.extraLines || []).filter(Boolean);
@@ -13,8 +15,11 @@ function CeffNode({ data, selected }) {
     <div
       style={{
         position: 'relative',
-        minWidth: 168,
-        maxWidth: 220,
+        width: NODE_WIDTH,
+        minHeight: NODE_MIN_HEIGHT,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
         background: color.bg,
         color: color.text,
         borderRadius: 'var(--ceff-rayon-tuile)',

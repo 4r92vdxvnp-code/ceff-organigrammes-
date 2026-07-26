@@ -11,11 +11,27 @@ export function loadCharts() {
   }
 }
 
+// Renvoie { charts, erreur } : sans remontée d'erreur, un stockage plein
+// ferait échouer l'enregistrement en silence et l'utilisateur croirait son
+// travail sauvegardé.
 export function saveChart(name, chart) {
   const charts = loadCharts();
+  const previous = charts[name];
   charts[name] = { ...chart, updatedAt: new Date().toISOString() };
-  localStorage.setItem(CHARTS_KEY, JSON.stringify(charts));
-  return charts;
+  try {
+    localStorage.setItem(CHARTS_KEY, JSON.stringify(charts));
+    return { charts, erreur: null };
+  } catch (e) {
+    // On restaure l'état précédent pour ne pas laisser un état incohérent.
+    if (previous) charts[name] = previous;
+    else delete charts[name];
+    return {
+      charts,
+      erreur:
+        "L'espace de stockage du navigateur est plein. Supprimez d'anciens organigrammes " +
+        "(menu Charger) ou utilisez « Exporter JSON » pour conserver ce travail.",
+    };
+  }
 }
 
 export function deleteChart(name) {
@@ -35,7 +51,11 @@ export function loadTemplates(fallback) {
 }
 
 export function saveTemplates(templates) {
-  localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+  try {
+    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+  } catch {
+    // Sans effet bloquant : la bibliothèque reste utilisable pour la session.
+  }
 }
 
 export function loadNames(fallback = []) {
@@ -48,7 +68,11 @@ export function loadNames(fallback = []) {
 }
 
 export function saveNames(names) {
-  localStorage.setItem(NAMES_KEY, JSON.stringify(names));
+  try {
+    localStorage.setItem(NAMES_KEY, JSON.stringify(names));
+  } catch {
+    // Sans effet bloquant : les noms restent disponibles pour la session.
+  }
 }
 
 export function exportChartToFile(name, chart) {
@@ -76,11 +100,23 @@ export function importChartFromFile(file) {
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
-        if (!data.nodes || !data.edges) {
-          reject(new Error('Fichier invalide : nœuds ou liens manquants.'));
+        // Contrôle strict : un JSON valide mais de structure inattendue
+        // (nombres, objets…) casserait le canevas au rendu.
+        if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
+          reject(new Error("ce fichier n'est pas un organigramme CEFF (nœuds ou liens manquants)."));
           return;
         }
-        resolve(data);
+        // On réimpose le type de nœud et de lien : un fichier ancien ou
+        // modifié à la main afficherait sinon des bulles au style par défaut.
+        resolve({
+          ...data,
+          nodes: data.nodes
+            .filter((n) => n && n.id && n.position)
+            .map((n) => ({ ...n, type: 'ceffNode', data: n.data || {} })),
+          edges: data.edges
+            .filter((e) => e && e.id && e.source && e.target)
+            .map((e) => ({ ...e, type: 'ceff', data: e.data || { dashed: false } })),
+        });
       } catch (e) {
         reject(e);
       }
@@ -91,10 +127,14 @@ export function importChartFromFile(file) {
 }
 
 function slugify(name) {
-  return (name || 'organigramme')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '') || 'organigramme';
+  return (
+    (name || 'organigramme')
+      .toLowerCase()
+      .normalize('NFD')
+      // Signes diacritiques combinants (U+0300 à U+036F), en notation
+      // échappée : plus lisible et insensible à l'encodage du fichier source.
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') || 'organigramme'
+  );
 }

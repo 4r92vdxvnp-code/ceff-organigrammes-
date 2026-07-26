@@ -1,10 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // Champ "Nom Prénom" avec mémoire : suggère les noms déjà saisis dans
 // d'autres organigrammes, et permet d'en retirer un de la mémoire.
 export default function NameAutocomplete({ value, onChange, names, onCommit, onRemoveName }) {
   const [open, setOpen] = useState(false);
   const blurTimer = useRef(null);
+
+  useEffect(() => () => clearTimeout(blurTimer.current), []);
 
   const query = (value || '').trim().toLowerCase();
   const suggestions = query

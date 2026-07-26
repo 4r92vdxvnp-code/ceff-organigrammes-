@@ -152,10 +152,39 @@ input:focus, textarea:focus, select:focus {
   letter-spacing: 0.5pt;
   text-transform: uppercase;
   padding: 3px 10px;
+  /* Charte §14 : le badge ne doit jamais chevaucher le texte de la boîte.
+     Sans cela, un libellé long passe sur deux lignes et recouvre le nom. */
+  white-space: nowrap;
 }
 
 .ceff-mobile-only {
   display: none;
+}
+
+/* Filet de sécurité : si la fenêtre est trop étroite pour tous les boutons,
+   la barre défile horizontalement au lieu de les rendre inaccessibles. */
+.ceff-toolbar {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ceff-toolbar::-webkit-scrollbar {
+  display: none;
+}
+.ceff-toolbar > * {
+  flex-shrink: 0;
+}
+
+/* Crédit auteur : visible dans l'application, jamais dans l'export PDF
+   (celui-ci est redessiné à partir des données, pas capturé à l'écran). */
+.ceff-credit {
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  font-size: 10px;
+  color: var(--ceff-texte-2);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 4;
 }
 
 .ceff-backdrop {
@@ -212,5 +241,19 @@ input:focus, textarea:focus, select:focus {
     inset: 56px 0 0 0;
     background: rgba(31, 56, 100, 0.25);
     z-index: 35;
+  }
+
+  /* La mini-carte occupait plus de la moitié de la largeur d'un iPhone et
+     masquait l'organigramme : inutile sur un si petit écran. */
+  .react-flow__minimap {
+    display: none;
+  }
+
+  /* Les poignées de liaison ne font que quelques pixels : on élargit la zone
+     tactile sans changer leur aspect, pour pouvoir relier deux bulles au doigt. */
+  .react-flow__handle::after {
+    content: '';
+    position: absolute;
+    inset: -12px;
   }
 }

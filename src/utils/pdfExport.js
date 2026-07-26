@@ -1,21 +1,27 @@
 import { jsPDF } from 'jspdf';
-import { colorByKey } from '../data/palette';
+import { colorByKey, NODE_WIDTH, NODE_MIN_HEIGHT } from '../data/palette';
 
-const DEFAULT_W = 180;
-const DEFAULT_H = 60;
+// Repli si un nœud n'a pas encore été mesuré : mêmes valeurs que le rendu.
+const DEFAULT_W = NODE_WIDTH;
+const DEFAULT_H = NODE_MIN_HEIGHT;
 const MARGIN = 36; // pt
 const CONNECTOR_COLOR = [207, 207, 207];
-// Format d'origine du logo (charte §6) : 285 × 183 px.
-const LOGO_RATIO = 183 / 285;
-const LOGO_W = 60; // pt
+// Proportions natives du fichier logo (300 × 200 px), jamais déformées (charte §6).
+const LOGO_RATIO = 200 / 300;
+const LOGO_W = 72; // pt
 const LOGO_H = LOGO_W * LOGO_RATIO;
 const LOGO_TOP_MARGIN = MARGIN + LOGO_H + 14;
 
 let logoDataUrlPromise = null;
 function getLogoDataUrl() {
   if (!logoDataUrlPromise) {
-    logoDataUrlPromise = fetch('/logo-ceff.jpg')
-      .then((r) => r.blob())
+    logoDataUrlPromise = fetch(`${import.meta.env.BASE_URL}logo-ceff.jpg`)
+      .then((r) => {
+        // Sans ce contrôle, une réponse 404 produirait un "blob" d'erreur
+        // converti en data URL invalide, et le logo disparaîtrait en silence.
+        if (!r.ok) throw new Error(`Logo introuvable (HTTP ${r.status})`);
+        return r.blob();
+      })
       .then(
         (blob) =>
           new Promise((resolve, reject) => {
@@ -24,7 +30,11 @@ function getLogoDataUrl() {
             reader.onerror = reject;
             reader.readAsDataURL(blob);
           })
-      );
+      )
+      .catch((err) => {
+        logoDataUrlPromise = null; // permet une nouvelle tentative au prochain export
+        throw err;
+      });
   }
   return logoDataUrlPromise;
 }
@@ -41,6 +51,21 @@ export async function exportOrgChartToPdf(nodes, edges, chartName, options = {})
   if (!nodes.length) return;
   const { includeLogo = false } = options;
 
+  // Le logo est chargé AVANT la mise en page : sans cela, un échec de
+  // chargement réserverait en haut de page un espace pour un logo absent,
+  // et l'organigramme ne serait plus centré.
+  let logoDataUrl = null;
+  if (includeLogo) {
+    try {
+      logoDataUrl = await getLogoDataUrl();
+    } catch (err) {
+      window.alert(
+        "Le logo CEFF n'a pas pu être chargé, le PDF est généré sans logo.\n\nDétail : " + err.message
+      );
+    }
+  }
+  const withLogo = !!logoDataUrl;
+
   const boxes = nodes.map((n) => {
     const w = n.measured?.width || n.width || DEFAULT_W;
     const h = n.measured?.height || n.height || DEFAULT_H;
@@ -54,13 +79,23 @@ export async function exportOrgChartToPdf(nodes, edges, chartName, options = {})
   const contentW = maxX - minX;
   const contentH = maxY - minY;
 
-  // Le format portrait est privilégié ; le paysage n'est retenu que si
-  // l'organigramme est nettement plus large que haut.
-  const orientation = contentW / contentH > 1.3 ? 'landscape' : 'portrait';
+  // Le portrait est privilégié : on ne bascule en paysage que s'il agrandit
+  // nettement l'organigramme (au moins 25 % de plus), sinon le portrait est
+  // conservé même quand le paysage serait un peu plus grand.
+  const A4_SHORT = 595.28;
+  const A4_LONG = 841.89;
+  const topMarginFor = () => (withLogo ? LOGO_TOP_MARGIN : MARGIN);
+  const scaleFor = (pw, ph) =>
+    Math.min((pw - MARGIN * 2) / contentW, (ph - topMarginFor() - MARGIN) / contentH, 1.5);
+
+  const portraitScale = scaleFor(A4_SHORT, A4_LONG);
+  const landscapeScale = scaleFor(A4_LONG, A4_SHORT);
+  const orientation = landscapeScale > portraitScale * 1.25 ? 'landscape' : 'portrait';
+
   const doc = new jsPDF({ orientation, unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const topMargin = includeLogo ? LOGO_TOP_MARGIN : MARGIN;
+  const topMargin = topMarginFor();
   const availW = pageW - MARGIN * 2;
   const availH = pageH - topMargin - MARGIN;
 
@@ -181,13 +216,8 @@ export async function exportOrgChartToPdf(nodes, edges, chartName, options = {})
     }
   });
 
-  if (includeLogo) {
-    try {
-      const logoDataUrl = await getLogoDataUrl();
-      doc.addImage(logoDataUrl, 'JPEG', MARGIN, MARGIN, LOGO_W, LOGO_H);
-    } catch {
-      // Logo indisponible : l'export continue sans logo plutôt que d'échouer.
-    }
+  if (withLogo) {
+    doc.addImage(logoDataUrl, 'JPEG', MARGIN, MARGIN, LOGO_W, LOGO_H);
   }
 
   const safeName = (chartName || 'organigramme').trim() || 'organigramme';

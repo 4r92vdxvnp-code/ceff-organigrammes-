@@ -1,14 +1,70 @@
-import { CEFF_COLORS } from '../data/palette';
-import { STATUS_BADGES } from '../data/palette';
+import { CEFF_COLORS, LEVELS, LEVEL_DEFAULT_COLOR, STATUS_BADGES } from '../data/palette';
 import NameAutocomplete from './NameAutocomplete';
 
-export default function InspectorPanel({ node, onChange, onDelete, onClose, savedNames, onCommitName, onRemoveName }) {
+export default function InspectorPanel({
+  node,
+  selectionCount,
+  onChange,
+  onDelete,
+  onDeleteSelection,
+  onApplyLevelToSelection,
+  onClose,
+  savedNames,
+  onCommitName,
+  onRemoveName,
+}) {
+  // Plusieurs bulles sélectionnées : on n'édite pas les textes (ils diffèrent),
+  // mais on propose les actions qui ont du sens en lot.
+  if (selectionCount > 1) {
+    return (
+      <aside className="ceff-panel ceff-panel-right open" style={panelStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ceff-primaire)' }}>
+            {selectionCount} bulles sélectionnées
+          </div>
+          <button className="ceff-btn-icon" onClick={onClose} title="Fermer">✕</button>
+        </div>
+
+        <div style={{ fontSize: 12, color: 'var(--ceff-texte-2)' }}>
+          Glissez-en une pour déplacer tout le groupe.
+        </div>
+
+        <Field label="Appliquer un niveau au groupe">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {LEVELS.map((l) => (
+              <button
+                key={l.value}
+                className="ceff-btn ceff-btn-outline"
+                style={{ justifyContent: 'flex-start', fontSize: 12 }}
+                onClick={() => onApplyLevelToSelection(l.value)}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <button
+          className="ceff-btn ceff-btn-outline"
+          style={{ color: 'var(--ceff-accent)', borderColor: 'var(--ceff-accent)', justifyContent: 'center' }}
+          onClick={onDeleteSelection}
+        >
+          Supprimer les {selectionCount} bulles
+        </button>
+      </aside>
+    );
+  }
+
   if (!node) {
     return (
       <aside className="ceff-panel ceff-panel-right" style={panelStyle}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ceff-primaire)' }}>Propriétés</div>
         <div style={{ fontSize: 12, color: 'var(--ceff-texte-2)', marginTop: 8 }}>
           Sélectionnez une bulle pour l'éditer.
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--ceff-texte-2)', marginTop: 4, opacity: 0.8 }}>
+          Maj + glisser sur le fond pour sélectionner plusieurs bulles ;
+          Cmd (ou Ctrl) + clic pour les ajouter une à une.
         </div>
       </aside>
     );
@@ -21,6 +77,9 @@ export default function InspectorPanel({ node, onChange, onDelete, onClose, save
   }
 
   const extraLines = data.extraLines && data.extraLines.length ? data.extraLines : [''];
+  // Un badge hors liste (ou le choix explicite "Autre") bascule en texte libre.
+  const badgeIsCustom = data.badgeCustom || (!!data.badge && !STATUS_BADGES.includes(data.badge));
+  const badgeSelectValue = badgeIsCustom ? '__autre__' : data.badge || '';
 
   return (
     <aside className="ceff-panel ceff-panel-right open" style={panelStyle}>
@@ -72,7 +131,28 @@ export default function InspectorPanel({ node, onChange, onDelete, onClose, save
         )}
       </Field>
 
-      <Field label="Couleur (palette CEFF)">
+      <Field label="Niveau hiérarchique">
+        <select
+          value={data.level || ''}
+          onChange={(e) => {
+            const level = Number(e.target.value);
+            // Choisir un niveau applique le fond imposé par la charte §14.
+            update({ level, color: LEVEL_DEFAULT_COLOR[level] });
+          }}
+        >
+          <option value="">Non défini</option>
+          {LEVELS.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+        <div style={{ fontSize: 10.5, color: 'var(--ceff-texte-2)', marginTop: 4, opacity: 0.85 }}>
+          Les niveaux 3 et 4 partagent le même gris : la charte limite à trois fonds de niveau.
+        </div>
+      </Field>
+
+      <Field label="Couleur (exception, palette CEFF)">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {CEFF_COLORS.map((c) => (
             <button
@@ -93,14 +173,31 @@ export default function InspectorPanel({ node, onChange, onDelete, onClose, save
       </Field>
 
       <Field label="Badge de statut">
-        <select value={data.badge || ''} onChange={(e) => update({ badge: e.target.value || null })}>
+        <select
+          value={badgeSelectValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '__autre__') update({ badgeCustom: true, badge: '' });
+            else update({ badgeCustom: false, badge: v || null });
+          }}
+        >
           <option value="">Aucun</option>
           {STATUS_BADGES.map((b) => (
             <option key={b} value={b}>
               {b}
             </option>
           ))}
+          <option value="__autre__">Autre…</option>
         </select>
+        {badgeIsCustom && (
+          <input
+            style={{ marginTop: 6 }}
+            value={data.badge || ''}
+            placeholder="Texte du badge"
+            maxLength={14}
+            onChange={(e) => update({ badge: e.target.value.toUpperCase() })}
+          />
+        )}
       </Field>
 
       <Field label="Mise en avant">

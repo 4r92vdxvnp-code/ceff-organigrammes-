@@ -19,6 +19,8 @@ export default function Toolbar({
   onToggleLibrary,
   showGuides,
   onToggleGuides,
+  onDeleteAll,
+  canDeleteAll,
 }) {
   const [loadOpen, setLoadOpen] = useState(false);
   const fileInputRef = useRef(null);
@@ -50,7 +52,7 @@ export default function Toolbar({
           fontSize: 14,
           fontWeight: 700,
           color: 'var(--ceff-primaire)',
-          width: 220,
+          width: 150,
           flexShrink: 0,
           padding: '6px 8px',
         }}
@@ -152,17 +154,27 @@ export default function Toolbar({
         onClick={onToggleGuides}
         style={showGuides ? { background: 'var(--ceff-fond-gris)' } : undefined}
       >
-        Alignement magnétique
+        Aimant
       </button>
 
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
-        <span style={{ fontSize: 10, color: 'var(--ceff-texte-2)', opacity: 0.55, whiteSpace: 'nowrap' }}>
-          Application développée par Réal Dylan
-        </span>
-      </div>
+      <button
+        className="ceff-btn ceff-btn-outline"
+        title="Supprimer toutes les bulles et tous les liens"
+        onClick={onDeleteAll}
+        disabled={!canDeleteAll}
+        style={{ color: 'var(--ceff-accent)', borderColor: 'var(--ceff-accent)' }}
+      >
+        Tout effacer
+      </button>
 
-      <button className="ceff-btn ceff-btn-outline" onClick={onExportJson}>
-        Exporter JSON
+      <div style={{ flex: 1, minWidth: 8 }} />
+
+      <button
+        className="ceff-btn ceff-btn-outline"
+        onClick={onExportJson}
+        title="Exporter en fichier JSON (sauvegarde, transfert vers un autre appareil)"
+      >
+        JSON
       </button>
       <button className="ceff-btn ceff-btn-primary" onClick={onExportPdf}>
         Exporter en PDF
